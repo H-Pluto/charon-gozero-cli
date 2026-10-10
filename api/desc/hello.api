@@ -1,0 +1,34 @@
+syntax = "v1"
+
+// hello.api 是脚手架自证接口。
+//
+// 它不承载任何业务，只用来验证「路由 → handler → logic → 统一响应」
+// 这条链路是通的。真实业务接口请新建独立文件并在 charon.api 里 import。
+
+// HelloReq 是 hello 接口的查询参数。
+type HelloReq {
+	// Name 是要问候的对象。留空时 logic 会用 "world" 兜底。
+	Name string `form:"name,optional"`
+}
+
+// HelloResp 是 hello 接口的业务数据。
+//
+// 注意这里只有业务字段，没有 code/message——响应外壳由 pkg/response 统一加上。
+type HelloResp {
+	Message string `json:"message"`
+	Time    string `json:"time"`
+}
+
+@server (
+	// prefix 让同一个 group 下的路由共享路径前缀。
+	// 所有对外业务接口都挂在 /api/v1 下，便于将来统一加版本号或网关规则。
+	prefix: /api/v1
+	// group 决定生成代码的目录名（internal/handler/hello、internal/logic/hello）。
+	group: hello
+)
+
+service charon-api {
+	// GET /api/v1/hello?name=charon
+	@handler Hello
+	get /hello (HelloReq) returns (HelloResp)
+}

@@ -1,0 +1,16 @@
+syntax = "v1"
+
+// common.api 放跨模块复用的类型定义。
+//
+// 这里只描述「请求参数」和「业务数据」的形状；
+// 最外层的 {code,message,data,traceId} 响应外壳由 pkg/response 统一套上，
+// 不在 .api 里表达——否则每个接口都要重复声明一遍外壳。
+
+type (
+	// PageQuery 是所有分页列表接口共用的查询参数。
+	// 用法：在请求结构体里内嵌它，再补自己的过滤字段。
+	PageQuery {
+		Page     int `form:"page,optional,default=1"`
+		PageSize int `form:"pageSize,optional,default=20,range=[1:100]"`
+	}
+)

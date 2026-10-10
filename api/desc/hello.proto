@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+// go_package 必须写全，否则 protoc-gen-go 会报错。
+// 生成目标是 charon/api/pb，所以这里写 "charon/api/pb"。
+option go_package = "charon/api/pb";
+
+package hello;
+
+// hello 服务仅用于自证 cmd/rpc 这条链路是通的，不承载业务。
+//
+// 架构约束：服务间业务调用走 HTTP，不要以本文件为模板往这里加领域方法。
+// 详见 README.md 的「架构约束」。
+service Hello {
+  rpc Say(SayReq) returns (SayResp);
+}
+
+message SayReq {
+  string name = 1;
+}
+
+message SayResp {
+  string message = 1;
+}

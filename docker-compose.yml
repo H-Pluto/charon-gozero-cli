@@ -1,0 +1,75 @@
+# charon 本地开发用的 compose。
+#
+# 只包含 charon 自己需要的：Postgres + api + rpc。
+# 需要连 primary-star 的其他服务（rabbitmq / napcat / q-bot / pluto-ai）时，
+# 用 docker-compose.full.yml 叠加。
+#
+# 端口说明：api 用 8888。8080 已被 q-bot 占用（见根目录 docker-compose.yml），
+# 不要改回 8080，否则两个服务会抢端口。
+
+name: charon
+
+services:
+  postgres:
+    image: postgres:${POSTGRES_VERSION:-18-alpine}
+    container_name: charon-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-charon}
+      # 显式指定 PGDATA。postgres 18 官方镜像改过默认数据目录，
+      # 写死这里才能保证下面挂载的路径是对的，不受镜像默认值变化影响。
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      # pg_isready 是 postgres 自带的探针；用它而不是开 tcp 探测，
+      # 能区分「端口通了但实例还没准备好接受查询」。
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-charon}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - charon-net
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: charon-api
+    restart: unless-stopped
+    command: ["/app/charon-api", "-f", "/app/etc/charon-api.yaml"]
+    environment:
+      # 容器内用服务名 postgres 而不是 127.0.0.1。
+      DB_DATA_SOURCE: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-charon}?sslmode=disable
+    ports:
+      - "8888:8888"
+    depends_on:
+      postgres:
+        # 等健康检查通过再启动。没有这个，api 会因为「数据库连不上」
+        # 直接启动失败（这是设计行为，不是 bug）。
+        condition: service_healthy
+    networks:
+      - charon-net
+
+  rpc:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: charon-rpc
+    restart: unless-stopped
+    command: ["/app/charon-rpc", "-f", "/app/etc/charon-rpc.yaml"]
+    ports:
+      - "9090:9090"
+    depends_on:
+      - postgres
+    networks:
+      - charon-net
+
+networks:
+  charon-net:
+    driver: bridge

@@ -1,0 +1,64 @@
+# golangci-lint 配置（v2 格式，对应 golangci-lint >= 2.0）。
+#
+# 为什么需要这个文件：本仓库用 go-zero，它的结构体 tag 语法与标准
+# encoding/json 不同：
+#
+#	`json:",default=20"`
+#	`json:",default=pgx,options=pgx|postgres"`
+#
+# staticcheck 的 SA5008（malformed struct tag）会把这些判成语法错误，
+# 但那是**误报**——tag 的解析由 go-zero 的 core/mapping 包负责，
+# 运行时行为正确（已实测：默认值、options 校验都生效）。
+#
+# 所以下面显式剔除 SA5008。不要为了迎合 linter 删掉这些 tag，
+# 那会让配置的默认值和取值校验全部失效。
+
+version: "2"
+
+linters:
+  enable:
+    - govet
+    - staticcheck
+    - errcheck
+    - ineffassign
+    - unused
+    - misspell
+    - bodyclose
+    - noctx
+    - rowserrcheck
+    - sqlclosecheck
+
+  settings:
+    staticcheck:
+      checks:
+        # 继承全部默认检查，但剔除 SA5008（见文件头说明）。
+        - all
+        - -SA5008
+
+  exclusions:
+    rules:
+      # 测试文件里允许忽略部分错误（mock 关闭、测试辅助函数返回值等）。
+      - path: _test\.go
+        linters:
+          - errcheck
+          - bodyclose
+          - noctx
+
+      # protoc 生成的代码不检查。它由工具维护，不需要我们修正。
+      - path: api/pb/
+        linters:
+          - staticcheck
+          - errcheck
+          - unused
+          - misspell
+
+formatters:
+  enable:
+    - gofmt
+  exclusions:
+    paths:
+      - api/pb/
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

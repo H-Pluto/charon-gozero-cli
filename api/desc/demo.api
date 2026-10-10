@@ -1,0 +1,69 @@
+syntax = "v1"
+
+// demo.api 是「整条链路」的示例接口，读写 PostgreSQL 的 demo_item 表。
+//
+// 它的存在意义是证明 config → svc → repo → model → migration 全线打通，
+// 而不只是能起一个空服务。业务开工后应当整体删除：
+//   - 本文件
+//   - charon.api 里对应的 import
+//   - internal/handler/demo/、internal/logic/demo/、internal/types/demo*.go
+//   - internal/repo/demo_item.go、internal/model/demo_item.go
+//   - migrations 里的 demo_item 表
+//   - 本文件顶部的 prefix 段
+
+type (
+	// CreateDemoReq 是创建 demo_item 的请求体（JSON）。
+	CreateDemoReq {
+		Name string `json:"name"` // 必填，1-64 字符
+	}
+
+	// DemoItem 是 demo_item 的对外形状。
+	DemoItem {
+		ID        int64  `json:"id"`
+		Name      string `json:"name"`
+		CreatedAt string `json:"createdAt"`
+	}
+
+	// CreateDemoResp 返回新建记录的 id。
+	CreateDemoResp {
+		ID int64 `json:"id"`
+	}
+
+	// GetDemoReq 按 id 查询。
+	GetDemoReq {
+		ID int64 `path:"id"`
+	}
+
+	// ListDemoReq 是分页列表的请求参数，演示 PageQuery 的用法。
+	ListDemoReq {
+		PageQuery
+	}
+
+	// DeleteDemoReq 按 id 删除。
+	DeleteDemoReq {
+		ID int64 `path:"id"`
+	}
+)
+
+@server (
+	prefix: /api/v1
+	group:  demo
+)
+
+service charon-api {
+	// 新增：POST /api/v1/demo
+	@handler CreateDemo
+	post /demo (CreateDemoReq) returns (CreateDemoResp)
+
+	// 查询单条：GET /api/v1/demo/:id
+	@handler GetDemo
+	get /demo/:id (GetDemoReq) returns (DemoItem)
+
+	// 列表：GET /api/v1/demo?page=1&pageSize=20
+	@handler ListDemo
+	get /demo (ListDemoReq) returns (DemoItem)
+
+	// 删除：DELETE /api/v1/demo/:id
+	@handler DeleteDemo
+	delete /demo/:id (DeleteDemoReq)
+}

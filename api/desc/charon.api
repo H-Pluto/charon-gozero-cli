@@ -1,0 +1,21 @@
+syntax = "v1"
+
+// charon.api 是 API 契约的入口文件。
+//
+// 约定：所有业务接口都在这里 import 进来的 *.api 里定义，
+// 不要把接口直接写在本文件——本文件只做汇总和全局配置。
+//
+// 生成命令见 Makefile 的 gen 目标。注意生成产物（internal/handler、
+// internal/logic、internal/types）当前是手写维护的，改动 .api 后
+// 需要同步手改，详见 README.md 的「新增一个接口」。
+
+info (
+	title:   "charon"
+	desc:    "charon 业务微服务（primary-star）"
+	author:  "huaju"
+	version: "v1"
+)
+
+import "common.api"
+import "hello.api"
+import "demo.api"

@@ -1,0 +1,141 @@
+# charon-api 的 Kubernetes 部署草图。
+#
+# 这是一份**起点模板**，不是可直接生产的清单。上生产前至少需要复核：
+#   - 镜像 tag（下面用 charon:dev 占位，应换成不可变的真实 tag/摘要）
+#   - resources 的 requests/limits（现在给的是开发量级）
+#   - 副本数、探针阈值、PDB、NetworkPolicy、Ingress 策略
+#   - Secret 名与来源（见 deploy/secret.example.yaml）
+#
+# 前置：先创建 Secret charon-db（见 ../secret.example.yaml）。
+# DSN 通过 secretKeyRef 注入，**绝不写进下面的 ConfigMap**。
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: charon-api-config
+  labels:
+    app.kubernetes.io/name: charon-api
+    app.kubernetes.io/part-of: charon
+data:
+  # 这份是 etc/charon-api.yaml 的集群内版本：只覆盖需要按环境变化的值。
+  # $DB_DATA_SOURCE 由 conf.UseEnv() 从环境变量展开，值来自 Secret。
+  charon-api.yaml: |
+    Name: charon-api
+    Host: 0.0.0.0
+    Port: 8888
+    Mode: pro
+    Timeout: 5000
+    MaxBytes: 1048576
+
+    Log:
+      Mode: console
+      Encoding: json
+      Level: info
+      Stat: true
+
+    Telemetry:
+      Name: charon-api
+      Disabled: true
+
+    # 鉴权模式。
+    #   require 只校验 Bearer 非空、不验签，属于临时门闩。
+    #   注意：Mode=require 期间，本服务对应 Service 必须是 ClusterIP，
+    #   且**不得**被公网 Ingress 前置——它挡不住伪造 token。
+    Auth:
+      Mode: require
+
+    Health:
+      RequireToken: false
+
+    DB:
+      Driver: pgx
+      DataSource: $DB_DATA_SOURCE
+      MaxOpenConns: 20
+      MaxIdleConns: 10
+      MaxLifetime: 1h
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: charon-api
+  labels:
+    app.kubernetes.io/name: charon-api
+    app.kubernetes.io/part-of: charon
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: charon-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: charon-api
+    spec:
+      containers:
+        - name: api
+          # 占位镜像：api 与 rpc 打同一个镜像，用不同 command 起（见 Dockerfile）。
+          image: charon:dev
+          imagePullPolicy: IfNotPresent
+          command: ["/app/charon-api", "-f", "/app/etc/charon-api.yaml"]
+          ports:
+            - name: http
+              containerPort: 8888
+          envFrom:
+            # 整袋注入 Secret 的键为环境变量；DB_DATA_SOURCE 即来自这里。
+            # 用 envFrom 而不是逐个写，Secret 增删键时不必改 Deployment。
+            - secretRef:
+                name: charon-db
+          # 探针路径刻意不经过鉴权中间件（见 pkg/health）：kubelet 没有 Bearer，
+          # 若探针被鉴权挡住会一直失败，导致实例被误判不健康。
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            # /readyz 会 ping Postgres；依赖不可用时从 Endpoints 摘除，
+            # 避免把「起来了但连不上库」的实例继续导流。
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            # 开发量级占位值，上生产前按实际压测调整。
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - name: config
+              mountPath: /app/etc
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: charon-api-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: charon-api
+  labels:
+    app.kubernetes.io/name: charon-api
+    app.kubernetes.io/part-of: charon
+spec:
+  # 保持 ClusterIP：Auth.Mode=require 期间禁止公网暴露。
+  # 将来接入真实鉴权、并确认可以对外时，再由 Ingress 前置，不要改成 LoadBalancer/NodePort。
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: charon-api
+  ports:
+    - name: http
+      port: 8888
+      targetPort: http

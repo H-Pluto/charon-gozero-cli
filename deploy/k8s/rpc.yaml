@@ -1,0 +1,120 @@
+# charon-rpc 的 Kubernetes 部署草图。
+#
+# 和 api.yaml 一样，这是**起点模板**，上生产前需要复核镜像 tag、资源、副本数等。
+#
+# 架构提醒：本服务当前只承载 hello 自证方法，不带业务（见 cmd/rpc/main.go）。
+# 若未来开放真实业务 RPC，开放前必须先补 mTLS 与服务端鉴权——当前是明文连接。
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: charon-rpc-config
+  labels:
+    app.kubernetes.io/name: charon-rpc
+    app.kubernetes.io/part-of: charon
+data:
+  # etc/charon-rpc.yaml 的集群内版本。
+  charon-rpc.yaml: |
+    Name: charon-rpc
+    ListenOn: 0.0.0.0:9090
+    Mode: pro
+    Timeout: 2000
+
+    # 开启 zrpc 内置的 gRPC 健康检查服务，下面的 grpc 探针才有意义。
+    Health: true
+
+    Log:
+      Mode: console
+      Encoding: json
+      Level: info
+      Stat: true
+
+    Middlewares:
+      Trace: true
+      Log: true
+      Prometheus: true
+      Breaker: true
+      Recover: true
+      Stat: true
+
+    Telemetry:
+      Name: charon-rpc
+      Disabled: true
+
+    # 服务发现：本地/单集群直连不需要 etcd。若要注册到 etcd，在这里补 Etcd 段。
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: charon-rpc
+  labels:
+    app.kubernetes.io/name: charon-rpc
+    app.kubernetes.io/part-of: charon
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: charon-rpc
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: charon-rpc
+    spec:
+      containers:
+        - name: rpc
+          image: charon:dev
+          imagePullPolicy: IfNotPresent
+          command: ["/app/charon-rpc", "-f", "/app/etc/charon-rpc.yaml"]
+          ports:
+            - name: grpc
+              containerPort: 9090
+          # gRPC 探针（原生 grpc 探针，要求集群 k8s >= 1.24，GRPCContainerProbe 特性）。
+          # 它调用的是 zrpc 的健康检查服务（Health: true）。
+          # 老集群不支持 grpc 探针时，改用一层的只读 sidecar 里的
+          # grpc_health_probe，用 exec 探针调用：grpc_health_probe -addr=:9090。
+          livenessProbe:
+            grpc:
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            grpc:
+              port: 9090
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - name: config
+              mountPath: /app/etc
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: charon-rpc-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: charon-rpc
+  labels:
+    app.kubernetes.io/name: charon-rpc
+    app.kubernetes.io/part-of: charon
+spec:
+  # 集群内访问：gRPC 当前是明文，只应经集群网络访问，不要暴露到集群外。
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: charon-rpc
+  ports:
+    - name: grpc
+      port: 9090
+      targetPort: grpc

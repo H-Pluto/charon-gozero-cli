@@ -1,0 +1,63 @@
+# charon-api 的开发配置。
+#
+# 字段名对应 internal/config/config.go 的结构体 tag。
+# 需要按环境覆盖的值用 $VAR 引用环境变量，配合 .env 使用（见 .env.example）。
+
+Name: charon-api
+Host: 0.0.0.0
+Port: 8888
+
+# Mode 影响日志与框架行为：dev 关闭自适应限流并输出更详细的日志。
+# 生产环境改为 pro。
+Mode: dev
+
+# 单个请求的超时（毫秒）。超过后 go-zero 直接返回 503。
+Timeout: 5000
+
+# 请求体上限（字节）。默认 1MB，超出返回 413。
+MaxBytes: 1048576
+
+Log:
+  # console 输出到终端，file 输出到文件。本地开发用 console。
+  Mode: console
+  # plain 是可读文本，json 便于日志系统采集。本地用 plain。
+  Encoding: plain
+  # debug / info / error / severe
+  Level: debug
+  # 是否打印统计信息（每秒请求数等）。本地开发关掉更清爽。
+  Stat: false
+
+# 链路追踪。本地没有 OTLP 后端，先关掉；否则启动时会尝试连接并刷错误日志。
+# 注意：关掉的是 otel span 上报（traceparent），业务日志里我们自己的
+# X-Trace-Id 不受影响，仍然可用（见 pkg/trace）。
+Telemetry:
+  Name: charon-api
+  Disabled: true
+
+# 鉴权。取值 none / require / sdk
+#
+#   require  只校验 Authorization: Bearer <非空>，不验签。属于临时门闩，
+#            期间禁止公网 Ingress（见 pkg/auth 的说明）。
+#   none     完全放行，仅本地开发可用。
+#   sdk      预留给 sdk-auth，当前会放行并打警告。
+Auth:
+  Mode: none
+
+# 探针。/health 与 /readyz。
+Health:
+  # 打开后探针必须带 X-Health-Token 头。本地开发关掉。
+  RequireToken: false
+
+# 数据库。
+#
+# DataSource 一旦配置，启动时就会真的连接；连不上则**启动失败**，
+# 不会回退到内存实现。留空则数据库相关接口返回 503。
+DB:
+  Driver: pgx
+  # 用 $DB_DATA_SOURCE 从环境变量注入，避免把密码写进仓库。
+  # 本地直接跑时可临时改成：
+  #   DataSource: postgres://postgres:postgres@127.0.0.1:5432/charon?sslmode=disable
+  DataSource: $DB_DATA_SOURCE
+  MaxOpenConns: 20
+  MaxIdleConns: 10
+  MaxLifetime: 1h

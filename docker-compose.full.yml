@@ -1,0 +1,87 @@
+# charon 的「全家桶」叠加文件（overlay）。
+#
+# 它不是独立可用的 compose，而是叠加在 docker-compose.yml 之上：
+#
+#   docker compose -f docker-compose.yml -f docker-compose.full.yml up
+#
+# 作用：把 charon 的服务**额外**接进 primary-star 的共享网络 primary-net，
+# 这样将来 charon 能用服务名（rabbitmq / q-bot / ...）访问兄弟服务，
+# 而不必走宿主机端口。
+#
+# 为什么这里又出现了 api / rpc 这样的服务名？
+#   compose 的叠加是「按键合并」：只有在本文件里**再次点名**某个服务，
+#   才能给它追加网络。这里刻意只写 服务名 + networks 两项，
+#   绝不重复 build / ports / environment / depends_on ——
+#   那些仍以 docker-compose.yml 为唯一真源，避免两份定义漂移。
+#   （列出两个网络时，无论 compose 是覆盖还是追加以外的语义，
+#    最终结果都同时包含 charon-net 与 primary-net。）
+#
+# 定位：本文件是**未来集成用的占位**。charon 目前没有任何消费 MQ 的业务逻辑，
+# 把网络先打通只是为了将来接 rabbitmq 时少踩一步坑，同时验证叠加写法可行。
+
+services:
+  api:
+    networks:
+      - charon-net
+      - primary-net
+
+  rpc:
+    networks:
+      - charon-net
+      - primary-net
+
+  # postgres 刻意不接 primary-net：它只属于 charon，
+  # 没有别的服务需要访问它，少接一个网络就少一份暴露面。
+
+# primary-net 由 primary-star 仓库根目录的 docker-compose.yml 创建。
+# 本文件用 external: true 表示「不在这里创建，只引用一个已经存在的网络」。
+#
+# 前置条件：primary-net 必须先存在，否则 up 会报错。任一方式即可：
+#   1) 先在仓库根目录 `docker compose up -d`（根 compose 会建 primary-net）
+#   2) 或手工 `docker network create primary-net`
+networks:
+  primary-net:
+    external: true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 下面这些服务正常情况下由 primary-star 根目录的 docker-compose.yml 提供，
+# 本文件不重复定义它们。这里仅以注释保留一份「参考片段」，
+# 方便在没有整仓 compose 的环境里临时补齐依赖后联调。
+#
+# 使用前请先确认 primary-net 已存在（见上面的前置条件）。
+#
+# services:
+#   rabbitmq:
+#     image: rabbitmq:3-management-alpine
+#     container_name: rabbitmq
+#     hostname: rabbitmq
+#     ports:
+#       - "5672:5672"     # AMQP
+#       - "15672:15672"   # 管理后台
+#     networks:
+#       - primary-net
+#
+#   napcat:
+#     image: mlikiowa/napcat-docker:latest
+#     container_name: napcat
+#     ports:
+#       - "6099:6099"
+#       - "3001:3001"
+#       - "3000:3000"
+#     networks:
+#       - primary-net
+#
+#   q-bot:
+#     # 路径相对 charon 目录；q-bot 在仓库根的 q-bot/
+#     build: ../../q-bot
+#     container_name: q-bot
+#     ports:
+#       - "8080:8080"
+#     networks:
+#       - primary-net
+#
+#   pluto-ai:
+#     build: ../../pluto-ai
+#     container_name: pluto-ai
+#     networks:
+#       - primary-net
